@@ -23,7 +23,6 @@
 #include <stdio.h>
 #include <libspeechd.h>
 #include <atspi/atspi.h>
-#include <wx/defs.h>
 
 // Device listeners prototypes
 AtspiAccessible* SOFocus;
@@ -33,12 +32,18 @@ glong index = 0;
 
 gboolean
 SO_interact(){
-	glong nbchild = atspi_accessible_get_child_count(SOFocus, error)
-	for (index = 0; index < nbchild 
-		&& !(AtspiAccessible* child = atspi_accessible_get_child_at_index(SOFocus, index, error))
-		&& atspi_accessible_get_role(child) == ATSPI_ROLE_INVALID)
-	{
+	glong nbchild = atspi_accessible_get_child_count(SOFocus, error);
+	glong i;
+	AtspiAccessible* child = NULL; 
+	
+	for (i = 0; i < nbchild 
+		&& !(child = atspi_accessible_get_child_at_index(SOFocus, i, error))
+		&& atspi_accessible_get_role(child, error) == ATSPI_ROLE_INVALID; ++i);
+
+	if (child) {
 		SOFocus = child;
+		index = i;
+		return TRUE;
 	}
 	return FALSE;
 }
