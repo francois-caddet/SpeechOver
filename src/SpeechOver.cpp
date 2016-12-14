@@ -31,18 +31,37 @@ SPDConnection* spdCo;
 glong index = 0;
 
 gboolean
+SO_is_traversable(AtspiAccessible* node) {
+	AtspiRole role = atspi_accessible_get_role(node, error);
+	if (role == ATSPI_ROLE_FILLER) return TRUE;
+	return FALSE;
+}
+
+gboolean
+SO_is_invalid(AtspiAccessible* node) {
+	if (node) {
+		if (atspi_accessible_get_role(node, error) == ATSPI_ROLE_INVALID)
+			return TRUE;
+		return FALSE;
+	}
+	return TRUE;
+}
+
+gboolean
 SO_interact(){
 	glong nbchild = atspi_accessible_get_child_count(SOFocus, error);
 	glong i;
 	AtspiAccessible* child = NULL; 
-	
-	for (i = 0; i < nbchild 
-		&& !(child = atspi_accessible_get_child_at_index(SOFocus, i, error))
-		&& atspi_accessible_get_role(child, error) == ATSPI_ROLE_INVALID; ++i);
+	if (nbchild)
+		for (i = 0, child = atspi_accessible_get_child_at_index(SOFocus, i, error);
+			i < nbchild
+			&& SO_is_invalid(child);
+		 	++i);
 
 	if (child) {
 		SOFocus = child;
 		index = i;
+		if (SO_is_traversable(child)) return SO_interact();
 		return TRUE;
 	}
 	return FALSE;
@@ -50,20 +69,32 @@ SO_interact(){
 
 gboolean
 SO_uninteract(){
-        SOFocus = atspi_accessible_get_parent(SOFocus, error);
-	index = 0;
-	return TRUE;
+        AtspiAccessible* parent = atspi_accessible_get_parent(SOFocus, error);
+	if (parent) {
+		SOFocus = parent;
+		index = atspi_accessible_get_index_in_parent(SOFocus, error);
+		if (index < 0) index = 0;
+		if (SO_is_traversable(SOFocus)) return SO_uninteract();
+		return TRUE;
+	}
+	return FALSE;
 }
 
 gboolean
 SO_move(glong to){
 	if (AtspiAccessible* parent = atspi_accessible_get_parent(SOFocus, error)){
-		index = (index + to) % atspi_accessible_get_child_count(parent, error);
-		if (index < 0) index += atspi_accessible_get_child_count(parent, error);
-		SOFocus = atspi_accessible_get_child_at_index(parent,
-				index,
-				error);
-		return TRUE;
+		index = index + to;
+		if (index < 0 || index >= atspi_accessible_get_child_count(parent, error)){
+			SOFocus = parent;
+			index = atspi_accessible_get_index_in_parent(SOFocus, error);
+			if (SO_is_traversable(SOFocus)) return SO_move(to);
+			else return SO_interact();
+		}
+		else {
+			SOFocus = atspi_accessible_get_child_at_index(parent, index, error);
+			if (SO_is_traversable(SOFocus)) return SO_interact();
+			return TRUE;
+		}
 	}
 	return FALSE;
 }
