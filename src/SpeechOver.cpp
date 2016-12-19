@@ -32,37 +32,60 @@ glong index = 0;
 
 gboolean
 SO_is_traversable(AtspiAccessible* node) {
-	AtspiRole role = atspi_accessible_get_role(node, error);
-	if (role == ATSPI_ROLE_FILLER) return TRUE;
+	if (atspi_accessible_get_child_count(node, error)) {
+		AtspiRole role = atspi_accessible_get_role(node, error);
+
+		if (role == ATSPI_ROLE_FILLER) return TRUE;
+		if (role == ATSPI_ROLE_PANEL) return TRUE;
+	}
 	return FALSE;
 }
 
 gboolean
 SO_is_invalid(AtspiAccessible* node) {
 	if (node) {
-		if (atspi_accessible_get_role(node, error) == ATSPI_ROLE_INVALID)
+		AtspiStateSet* states = atspi_accessible_get_state_set(node);
+		if (atspi_accessible_get_role(node, error) == ATSPI_ROLE_INVALID
+			|| (!atspi_state_set_contains(states, ATSPI_STATE_VISIBLE)
+				&& atspi_accessible_get_component_iface(node)))
 			return TRUE;
 		return FALSE;
 	}
 	return TRUE;
 }
 
-gboolean
-SO_interact(){
-	glong nbchild = atspi_accessible_get_child_count(SOFocus, error);
-	glong i;
-	AtspiAccessible* child = NULL; 
-	if (nbchild)
-		for (i = 0, child = atspi_accessible_get_child_at_index(SOFocus, i, error);
-			i < nbchild
-			&& SO_is_invalid(child);
-		 	++i);
+gchar* SO_get_description() {
+	gchar* description = "";
+	
+	return description;
+}
+	
 
-	if (child) {
-		SOFocus = child;
-		index = i;
-		if (SO_is_traversable(child)) return SO_interact();
-		return TRUE;
+gboolean
+SO_interact(glong i = 0){
+	glong nbchild = atspi_accessible_get_child_count(SOFocus, error);
+	if (nbchild) {
+		gint sens;
+		if (i < 0) {
+			sens = -1;
+			i = nbchild + i;
+		}	
+		else sens = 1;
+		i %= nbchild;
+		printf("%i", i);
+		AtspiAccessible* child = NULL; 
+		while (i < nbchild 
+			&& i >= 0
+			&& SO_is_invalid(child)) {
+			child = atspi_accessible_get_child_at_index(SOFocus, i, error);
+			i += sens;
+		}
+		if (child && !SO_is_invalid(child)) {
+			SOFocus = child;
+			index = i - sens;
+			if (SO_is_traversable(child)) return SO_interact((sens - 1) / 2);
+			return TRUE;
+		}
 	}
 	return FALSE;
 }
@@ -84,17 +107,16 @@ gboolean
 SO_move(glong to){
 	if (AtspiAccessible* parent = atspi_accessible_get_parent(SOFocus, error)){
 		index = index + to;
+		SOFocus = parent;
 		if (index < 0 || index >= atspi_accessible_get_child_count(parent, error)){
-			SOFocus = parent;
-			index = atspi_accessible_get_index_in_parent(SOFocus, error);
-			if (SO_is_traversable(SOFocus)) return SO_move(to);
-			else return SO_interact();
+			if (SO_is_traversable(SOFocus)) {
+				index = atspi_accessible_get_index_in_parent(SOFocus, error);
+				return SO_move(to);
+			}
+			else if (to == 1) index = 0;
+			else index = -1;
 		}
-		else {
-			SOFocus = atspi_accessible_get_child_at_index(parent, index, error);
-			if (SO_is_traversable(SOFocus)) return SO_interact();
-			return TRUE;
-		}
+		return SO_interact(index);
 	}
 	return FALSE;
 }
