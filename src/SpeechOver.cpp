@@ -25,18 +25,19 @@
 #include <atspi/atspi.h>
 
 // Device listeners prototypes
-AtspiAccessible* SOFocus;
+//AtspiAccessible* SOFocus;
 GError **error = NULL;
 SPDConnection* spdCo;
 glong index = 0;
 
 gboolean
-SO_is_traversable(AtspiAccessible* node) {
-	if (atspi_accessible_get_child_count(node, error)) {
+SO_is_traversable(AtspiAccessible* node, gboolean checkChild = TRUE) {
+	if (!checkChild || atspi_accessible_get_child_count(node, error)) {
 		AtspiRole role = atspi_accessible_get_role(node, error);
 
 		if (role == ATSPI_ROLE_FILLER) return TRUE;
 		if (role == ATSPI_ROLE_PANEL) return TRUE;
+		if (role == ATSPI_ROLE_SECTION) return TRUE;
 	}
 	return FALSE;
 }
@@ -47,8 +48,10 @@ SO_is_invalid(AtspiAccessible* node) {
 		AtspiStateSet* states = atspi_accessible_get_state_set(node);
 		if (atspi_accessible_get_role(node, error) == ATSPI_ROLE_INVALID
 			|| (!atspi_state_set_contains(states, ATSPI_STATE_VISIBLE)
-				&& atspi_accessible_get_component_iface(node)))
-			return TRUE;
+				&& atspi_accessible_get_component_iface(node))
+			|| (SO_is_traversable(node, FALSE)
+				&& !atspi_accessible_get_child_count(node, error))
+			) return TRUE;
 		return FALSE;
 	}
 	return TRUE;
@@ -60,65 +63,87 @@ gchar* SO_get_description() {
 	return description;
 }
 	
+AtspiAccessible* SO_move(AtspiAccessible* node, glong to);
 
-gboolean
-SO_interact(glong i = 0){
-	glong nbchild = atspi_accessible_get_child_count(SOFocus, error);
+AtspiAccessible*
+SO_interact(AtspiAccessible* node, glong i = 0){
+	glong nbchild = atspi_accessible_get_child_count(node, error);
+	glong sens = 0;
 	if (nbchild) {
-		gint sens;
 		if (i < 0) {
 			sens = -1;
-			i = nbchild + i;
+			while (i < 0) i += nbchild;
 		}	
-		else sens = 1;
-		i %= nbchild;
-		printf("%i", i);
-		AtspiAccessible* child = NULL; 
-		while (i < nbchild 
-			&& i >= 0
+		else {
+			sens = 1;
+			i %= nbchild;
+		}
+		printf("sens: %i\n", sens);
+		AtspiAccessible* child = NULL;
+		glong j = i;
+		while (i < nbchild && i >= 0
 			&& SO_is_invalid(child)) {
-			child = atspi_accessible_get_child_at_index(SOFocus, i, error);
+			child = atspi_accessible_get_child_at_index(node, i, error);
 			i += sens;
 		}
-		if (child && !SO_is_invalid(child)) {
-			SOFocus = child;
-			index = i - sens;
-			if (SO_is_traversable(child)) return SO_interact((sens - 1) / 2);
-			return TRUE;
-		}
-	}
-	return FALSE;
-}
-
-gboolean
-SO_uninteract(){
-        AtspiAccessible* parent = atspi_accessible_get_parent(SOFocus, error);
-	if (parent) {
-		SOFocus = parent;
-		index = atspi_accessible_get_index_in_parent(SOFocus, error);
-		if (index < 0) index = 0;
-		if (SO_is_traversable(SOFocus)) return SO_uninteract();
-		return TRUE;
-	}
-	return FALSE;
-}
-
-gboolean
-SO_move(glong to){
-	if (AtspiAccessible* parent = atspi_accessible_get_parent(SOFocus, error)){
-		index = index + to;
-		SOFocus = parent;
-		if (index < 0 || index >= atspi_accessible_get_child_count(parent, error)){
-			if (SO_is_traversable(SOFocus)) {
-				index = atspi_accessible_get_index_in_parent(SOFocus, error);
-				return SO_move(to);
+		if (!SO_is_traversable(node) && SO_is_invalid(child)) {
+			i += -sens * nbchild;
+			while (i != j && SO_is_invalid(child)) {
+				child = atspi_accessible_get_child_at_index(node, i, error);
+                        	i += sens;
 			}
-			else if (to == 1) index = 0;
-			else index = -1;
 		}
-		return SO_interact(index);
+		if (!SO_is_invalid(child)) {
+			if ((index = atspi_accessible_get_index_in_parent(child, error)) < 0)
+				index = i - sens;
+			printf("interact to index: %i / %i\n", index, nbchild - 1);
+			if (SO_is_traversable(child)){
+				if (AtspiAccessible* r = SO_interact(child, (sens - 1) / 2)) return r;
+				else return SO_move(child, sens);
+			}
+			return child;
+		}
 	}
-	return FALSE;
+	printf("interact NULL");
+	return NULL;
+}
+
+AtspiAccessible*
+SO_uninteract(AtspiAccessible* node){
+        AtspiAccessible* parent = atspi_accessible_get_parent(node, error);
+	if (parent) {
+		index = atspi_accessible_get_index_in_parent(parent, error);
+		printf("uninteract at index: %i\n", index);
+		if (index < 0) index = 0;
+		if (SO_is_traversable(parent)) return SO_uninteract(parent);
+		return parent;
+	}
+	printf("uninteract NULL");
+	return NULL;
+}
+
+AtspiAccessible*
+SO_move(AtspiAccessible* node, glong to){
+	if (AtspiAccessible* parent = atspi_accessible_get_parent(node, error)){
+		glong go = atspi_accessible_get_index_in_parent(node, error);
+		if (go < 0) go = index;
+		go += to;
+		glong nbbrow = atspi_accessible_get_child_count(parent, error);;
+		printf("uninteract at index: %i\n", atspi_accessible_get_index_in_parent(parent, error));
+		if (go < 0 || go >= nbbrow){
+			if (SO_is_traversable(parent)) {
+				index = atspi_accessible_get_index_in_parent(parent, error);
+				
+				return SO_move(parent, to);
+			}
+			go = (to - 1)/2;
+		}
+		else if (to < 0) go -= nbbrow;
+		if (AtspiAccessible* r = SO_interact(parent, go)) return r;
+		else return SO_move(parent, to); 
+	}
+	printf("qo to NULL");
+	return NULL;
 }
 
 gboolean
@@ -159,7 +184,7 @@ main (int argc, char **argv)
 	gint atspi_status = 1;
 	spdCo = spd_open("SpeechOver", "spd", "fcaddet", SPD_MODE_THREADED);
 	gint i;
-	AtspiAccessible* desktop = SOFocus;
+	AtspiAccessible* desktop = NULL;
 	gint n_desktops;
 	gchar *desktop_name;
 	AtspiStateType active = ATSPI_STATE_ACTIVE;
@@ -181,7 +206,7 @@ main (int argc, char **argv)
 	printf ("Starting [atspi status = %i]\n", atspi_status);
 
 	// Create device listeners
-	test_listener = atspi_device_listener_new (&device_listener_test, user_data, &device_listener_test_destroy);
+	test_listener = atspi_device_listener_new (&device_listener_test, &desktop, &device_listener_test_destroy);
 
 	// Register device listeners
 	atspi_register_keystroke_listener (test_listener, NULL, 0, ATSPI_KEY_RELEASED_EVENT,  ATSPI_KEYLISTENER_CANCONSUME | ATSPI_KEYLISTENER_SYNCHRONOUS, error);
@@ -204,7 +229,6 @@ main (int argc, char **argv)
 		printf ("Desktop [%i]: %s\n", i, desktop_name);
 		//print_childs_tree(desktop, rule, error);
 	}
-	SOFocus = desktop;
 
 	atspi_event_main();
 
@@ -216,47 +240,50 @@ main (int argc, char **argv)
 }
 
 gboolean
-device_listener_test (const AtspiDeviceEvent *stroke, void *user_data)
+device_listener_test (const AtspiDeviceEvent *stroke, void* user_data)
 {
 
-	printf ("%s: %i\n", stroke->event_string, stroke->hw_code);
+	printf ("\n%s: %i\n", stroke->event_string, stroke->hw_code);
 	gchar* toSay = NULL;
+	AtspiAccessible** focus = (AtspiAccessible**)user_data;
+	AtspiAccessible* next = NULL;
 	switch (stroke->hw_code){
 	case 9: 
 		atspi_event_quit();
 		return TRUE;
 	case 116:
-		SO_interact();
+		if (next = SO_interact(*focus)) *focus = next;
 		break;
 	case 111:
-		SO_uninteract();
+		if (next = SO_uninteract(*focus)) *focus = next;
 		break;
 	case 113:
-		SO_move(-1);
+		if (next = SO_move(*focus, -1)) *focus = next;
 		break;
 	case 114:
-		SO_move(1);
+		if (next = SO_move(*focus, 1)) *focus = next;
 		break;
 	case 40:
-		toSay = atspi_accessible_get_description(SOFocus, error);
+		toSay = atspi_accessible_get_description(*focus, error);
 		break;
 	}
 	if (toSay)
 		spd_sayf (spdCo, SPD_TEXT, "description: %s\n", toSay);
-	else
-		spd_sayf (spdCo, SPD_TEXT, "%s, %s\n", atspi_accessible_get_name(SOFocus, error), atspi_accessible_get_role_name(SOFocus, error));
-	/*GArray* relations = atspi_accessible_get_relation_set(SOFocus, error);
+	else if (next)
+		spd_sayf (spdCo, SPD_TEXT, "%s, %s\n", atspi_accessible_get_name(*focus, error), atspi_accessible_get_role_name(*focus, error));
+	else spd_sayf(spdCo, SPD_TEXT, "\a");
+	/*GArray* relations = atspi_accessible_get_relation_set(*focus, error);
 	for (gint i = 0; i < relations->len; ++i){
 		AtspiRelation* r = g_array_indew(atr, AtspiRelation*, i);
 	}*/
 	
-	if (GArray* ifaces = atspi_accessible_get_interfaces(SOFocus)) {
+	if (GArray* ifaces = atspi_accessible_get_interfaces(*focus)) {
 		printf ("\nINTERFACES\n");
 		for (gint i = 0; i < ifaces->len; ++i)
 			printf("\t%s\n", g_array_index(ifaces, gchar*, i));
 	}
 
-	if (AtspiAction* act = atspi_accessible_get_action(SOFocus)) {
+	if (AtspiAction* act = atspi_accessible_get_action(*focus)) {
 		printf ("\nACTIONS\n");
 		for (gint i = 0; i < atspi_action_get_n_actions(act, error); ++i)
 			printf ("\t%s (%s): %s\n",
@@ -267,11 +294,11 @@ device_listener_test (const AtspiDeviceEvent *stroke, void *user_data)
 	}
 	
 	if (atspi_state_set_contains(
-			atspi_accessible_get_state_set(SOFocus),
+			atspi_accessible_get_state_set(*focus),
 			ATSPI_STATE_ACTIVE
 		)) printf ("\nACTIVE\n");
 	else if (atspi_state_set_contains(
-                        atspi_accessible_get_state_set(SOFocus),
+                        atspi_accessible_get_state_set(*focus),
                         ATSPI_STATE_SELECTED
                 )) printf ("\nSELECTED\n");
 	return TRUE;
