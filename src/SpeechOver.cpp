@@ -30,14 +30,26 @@ GError **error = NULL;
 SPDConnection* spdCo;
 glong index = 0;
 
+gchar* SO_get_description(AtspiAccessible* node) {
+        gchar* r = "";
+        gchar* name = atspi_accessible_get_name(node, error);
+        gchar* description = atspi_accessible_get_description(node, error);
+        if (!g_strcmp0(name, "")) return description;
+        else return name;
+        return r;
+}
+
 gboolean
 SO_is_traversable(AtspiAccessible* node, gboolean checkChild = TRUE) {
 	if (!checkChild || atspi_accessible_get_child_count(node, error)) {
-		AtspiRole role = atspi_accessible_get_role(node, error);
+		if (!g_strcmp0(SO_get_description(node), "")) {
+			AtspiRole role = atspi_accessible_get_role(node, error);
 
-		if (role == ATSPI_ROLE_FILLER) return TRUE;
-		if (role == ATSPI_ROLE_PANEL) return TRUE;
-		if (role == ATSPI_ROLE_SECTION) return TRUE;
+			if (role == ATSPI_ROLE_FILLER) return TRUE;
+			if (role == ATSPI_ROLE_PANEL) return TRUE;
+			if (role == ATSPI_ROLE_SECTION) return TRUE;
+			if (role == ATSPI_ROLE_INTERNAL_FRAME) return TRUE;
+		}
 	}
 	return FALSE;
 }
@@ -57,16 +69,10 @@ SO_is_invalid(AtspiAccessible* node) {
 	return TRUE;
 }
 
-gchar* SO_get_description() {
-	gchar* description = "";
-	
-	return description;
-}
-	
 AtspiAccessible* SO_move(AtspiAccessible* node, glong to);
 
 AtspiAccessible*
-SO_interact(AtspiAccessible* node, glong i = 0){
+SO_interact(AtspiAccessible* node, glong i = 0, gboolean cyclic = false) {
 	glong nbchild = atspi_accessible_get_child_count(node, error);
 	glong sens = 0;
 	if (nbchild) {
@@ -86,7 +92,7 @@ SO_interact(AtspiAccessible* node, glong i = 0){
 			child = atspi_accessible_get_child_at_index(node, i, error);
 			i += sens;
 		}
-		if (!SO_is_traversable(node) && SO_is_invalid(child)) {
+		if (!SO_is_traversable(node) && SO_is_invalid(child) && cyclic) {
 			i += -sens * nbchild;
 			while (i != j && SO_is_invalid(child)) {
 				child = atspi_accessible_get_child_at_index(node, i, error);
@@ -136,6 +142,7 @@ SO_move(AtspiAccessible* node, glong to){
 				
 				return SO_move(parent, to);
 			}
+			else return NULL;
 			go = (to - 1)/2;
 		}
 		else if (to < 0) go -= nbbrow;
@@ -143,6 +150,15 @@ SO_move(AtspiAccessible* node, glong to){
 		else return SO_move(parent, to); 
 	}
 	printf("qo to NULL");
+	return NULL;
+}
+
+gchar*
+SO_perform_action(AtspiAccessible* node, gint i = 0) {
+	if (AtspiAction* act = atspi_accessible_get_action(node)) {
+		atspi_action_do_action(act, i, error);
+		return " ";
+	}
 	return NULL;
 }
 
@@ -262,6 +278,9 @@ device_listener_test (const AtspiDeviceEvent *stroke, void* user_data)
 		break;
 	case 114:
 		if (next = SO_move(*focus, 1)) *focus = next;
+		break;
+	case 65:
+		SO_perform_action(*focus);
 		break;
 	case 40:
 		toSay = atspi_accessible_get_description(*focus, error);
