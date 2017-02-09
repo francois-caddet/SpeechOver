@@ -30,11 +30,39 @@ GError **error = NULL;
 SPDConnection* spdCo;
 glong index = 0;
 
+static gchar*
+SO_get_label(AtspiAccessible *accessible)
+{
+  GArray *relations;
+  AtspiRelation *relation;
+  gint i;
+  gchar *result = "";
+
+  relations = atspi_accessible_get_relation_set (accessible, NULL);
+  if (relations == NULL) {
+    return "";
+  }
+
+  for (i = 0; i < relations->len; i++) {
+    relation = g_array_index (relations, AtspiRelation*, i);
+
+    if (atspi_relation_get_relation_type (relation) == ATSPI_RELATION_LABELLED_BY) {
+      result = atspi_accessible_get_name (atspi_relation_get_target (relation, 0), NULL);
+    }
+  }
+
+  if (relations != NULL)
+    g_array_free (relations, TRUE);
+
+  return result;
+}
+
 gchar* SO_get_description(AtspiAccessible* node) {
         gchar* r = "";
         gchar* name = atspi_accessible_get_name(node, error);
         gchar* description = atspi_accessible_get_description(node, error);
-        if (!g_strcmp0(name, "")) return description;
+        if (!g_strcmp0(name, "")) name = SO_get_label(node);
+	if (!g_strcmp0(name, "")) return description;
         else return name;
         return r;
 }
@@ -289,7 +317,7 @@ device_listener_test (const AtspiDeviceEvent *stroke, void* user_data)
 	if (toSay)
 		spd_sayf (spdCo, SPD_TEXT, "description: %s\n", toSay);
 	else if (next)
-		spd_sayf (spdCo, SPD_TEXT, "%s, %s\n", atspi_accessible_get_name(*focus, error), atspi_accessible_get_role_name(*focus, error));
+		spd_sayf (spdCo, SPD_TEXT, "%s, %s\n", SO_get_description(*focus), atspi_accessible_get_role_name(*focus, error));
 	else spd_sayf(spdCo, SPD_TEXT, "\a");
 	/*GArray* relations = atspi_accessible_get_relation_set(*focus, error);
 	for (gint i = 0; i < relations->len; ++i){
