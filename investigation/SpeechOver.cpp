@@ -26,9 +26,9 @@
 
 // Device listeners prototypes
 //AtspiAccessible* SOFocus;
-GError **error = NULL;
-SPDConnection* spdCo;
-glong index = 0;
+static GError **error = NULL;
+static SPDConnection* spdCo;
+static glong SO_index(0);
 
 static gchar*
 SO_get_label(AtspiAccessible *accessible)
@@ -128,9 +128,9 @@ SO_interact(AtspiAccessible* node, glong i = 0, gboolean cyclic = false) {
 			}
 		}
 		if (!SO_is_invalid(child)) {
-			if ((index = atspi_accessible_get_index_in_parent(child, error)) < 0)
-				index = i - sens;
-			printf("interact to index: %i / %i\n", index, nbchild - 1);
+			if ((SO_index = atspi_accessible_get_index_in_parent(child, error)) < 0)
+				SO_index = i - sens;
+			printf("interact to index: %i / %i\n", SO_index, nbchild - 1);
 			if (SO_is_traversable(child)){
 				if (AtspiAccessible* r = SO_interact(child, (sens - 1) / 2)) return r;
 				else return SO_move(child, sens);
@@ -146,9 +146,9 @@ AtspiAccessible*
 SO_uninteract(AtspiAccessible* node){
         AtspiAccessible* parent = atspi_accessible_get_parent(node, error);
 	if (parent) {
-		index = atspi_accessible_get_index_in_parent(parent, error);
-		printf("uninteract at index: %i\n", index);
-		if (index < 0) index = 0;
+		SO_index = atspi_accessible_get_index_in_parent(parent, error);
+		printf("uninteract at index: %i\n", SO_index);
+		if (SO_index < 0) SO_index = 0;
 		if (SO_is_traversable(parent)) return SO_uninteract(parent);
 		return parent;
 	}
@@ -160,13 +160,13 @@ AtspiAccessible*
 SO_move(AtspiAccessible* node, glong to){
 	if (AtspiAccessible* parent = atspi_accessible_get_parent(node, error)){
 		glong go = atspi_accessible_get_index_in_parent(node, error);
-		if (go < 0) go = index;
+		if (go < 0) go = SO_index;
 		go += to;
 		glong nbbrow = atspi_accessible_get_child_count(parent, error);;
 		printf("uninteract at index: %i\n", atspi_accessible_get_index_in_parent(parent, error));
 		if (go < 0 || go >= nbbrow){
 			if (SO_is_traversable(parent)) {
-				index = atspi_accessible_get_index_in_parent(parent, error);
+				SO_index = atspi_accessible_get_index_in_parent(parent, error);
 				
 				return SO_move(parent, to);
 			}
